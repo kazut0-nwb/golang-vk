@@ -3,14 +3,14 @@ package movie
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"my-go-app/internal/domain"
 	"net/http"
 	"strings"
 	"time"
 )
 
-var ErrMovieNotFound = errors.New("фильм не найден на стенде")
+var ErrMovieNotFound = domain.ErrMovieNotFound
 
 type UpstreamStatusError struct {
 	StatusCode int

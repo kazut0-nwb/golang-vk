@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"my-go-app/internal/domain"
 	"sort"
 	"sync"
 )
 
-var ErrInvalidRange = errors.New("некорректный диапазон фильмов")
+var ErrInvalidRange = domain.ErrInvalidRange
 
 type MovieError struct {
 	ID      int    `json:"id"`

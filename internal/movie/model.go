@@ -1,8 +1,5 @@
 package movie
 
-type Movie struct {
-	ID       int    `json:"id"`
-	Title    string `json:"title"`
-	Year     int    `json:"year"`
-	Director string `json:"director"`
-}
+import "my-go-app/internal/domain"
+
+type Movie = domain.Movie
