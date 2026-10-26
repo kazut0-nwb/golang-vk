@@ -1,5 +1,21 @@
 basePath: /
 definitions:
+  domain.Movie:
+    properties:
+      director:
+        type: string
+      id:
+        type: integer
+      title:
+        type: string
+      year:
+        type: integer
+    type: object
+  handler.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
   httpapi.ErrorResponse:
     properties:
       error:
@@ -16,22 +32,33 @@ definitions:
       year:
         type: integer
     type: object
-  movie.MovieError:
+  movie.RangeResult:
+    properties:
+      errors:
+        items:
+          $ref: '#/definitions/usecase.MovieError'
+        type: array
+      movies:
+        items:
+          $ref: '#/definitions/domain.Movie'
+        type: array
+    type: object
+  usecase.MovieError:
     properties:
       id:
         type: integer
       message:
         type: string
     type: object
-  movie.RangeResult:
+  usecase.RangeResult:
     properties:
       errors:
         items:
-          $ref: '#/definitions/movie.MovieError'
+          $ref: '#/definitions/usecase.MovieError'
         type: array
       movies:
         items:
-          $ref: '#/definitions/movie.Movie'
+          $ref: '#/definitions/domain.Movie'
         type: array
     type: object
 info:

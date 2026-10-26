@@ -13,10 +13,10 @@ import (
 	"time"
 
 	moviepb "my-go-app/api/proto"
+	"my-go-app/internal/adapter"
 	"my-go-app/internal/config"
-	"my-go-app/internal/grpcapi"
-	"my-go-app/internal/httpapi"
-	"my-go-app/internal/movie"
+	"my-go-app/internal/handler"
+	"my-go-app/internal/usecase"
 
 	"google.golang.org/grpc"
 
@@ -32,17 +32,17 @@ import (
 func main() {
 	cfg := config.Load()
 
-	client := movie.NewClient(
+	client := adapter.NewClient(
 		cfg.MovieBaseURL,
 		5*time.Second,
 	)
-	service := movie.NewService(client)
+	service := usecase.NewService(client)
 
 	// HTTP API и Swagger.
 	mux := http.NewServeMux()
 
-	handler := httpapi.NewHandler(service)
-	handler.RegisterRoutes(mux)
+	httpHandler := handler.NewHTTPHandler(service)
+	httpHandler.RegisterRoutes(mux)
 
 	mux.Handle("/swagger/", httpSwagger.Handler(
 		httpSwagger.URL("/swagger/doc.json"),
@@ -65,7 +65,7 @@ func main() {
 	grpcServer := grpc.NewServer()
 	moviepb.RegisterMovieServiceServer(
 		grpcServer,
-		grpcapi.NewServer(service),
+		handler.NewGRPCServer(service),
 	)
 
 	// Корректное завершение обоих серверов.

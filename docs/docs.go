@@ -136,6 +136,31 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "domain.Movie": {
+            "type": "object",
+            "properties": {
+                "director": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "year": {
+                    "type": "integer"
+                }
+            }
+        },
+        "handler.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
         "httpapi.ErrorResponse": {
             "type": "object",
             "properties": {
@@ -161,7 +186,24 @@ const docTemplate = `{
                 }
             }
         },
-        "movie.MovieError": {
+        "movie.RangeResult": {
+            "type": "object",
+            "properties": {
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/usecase.MovieError"
+                    }
+                },
+                "movies": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/domain.Movie"
+                    }
+                }
+            }
+        },
+        "usecase.MovieError": {
             "type": "object",
             "properties": {
                 "id": {
@@ -172,19 +214,19 @@ const docTemplate = `{
                 }
             }
         },
-        "movie.RangeResult": {
+        "usecase.RangeResult": {
             "type": "object",
             "properties": {
                 "errors": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/movie.MovieError"
+                        "$ref": "#/definitions/usecase.MovieError"
                     }
                 },
                 "movies": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/movie.Movie"
+                        "$ref": "#/definitions/domain.Movie"
                     }
                 }
             }
