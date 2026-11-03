@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package movies.v1;
+
+option go_package = "my-go-app/api/proto;moviepb";
+
+// MovieService предоставляет API для работы с фильмами.
+service MovieService {
+  // Загружает фильмы в указанном диапазоне ID.
+  rpc LoadMovies(LoadMoviesRequest) returns (LoadMoviesResponse);
+
+  // Находит последний доступный фильм.
+  rpc GetLastMovie(GetLastMovieRequest) returns (Movie);
+}
+
+// Параметры загрузки диапазона.
+message LoadMoviesRequest {
+  int32 from = 1;
+  int32 to = 2;
+}
+
+// Результат загрузки диапазона.
+message LoadMoviesResponse {
+  repeated Movie movies = 1;
+  repeated MovieError errors = 2;
+}
+
+// Информация о фильме.
+message Movie {
+  int32 id = 1;
+  string title = 2;
+  int32 year = 3;
+  string director = 4;
+}
+
+// Ошибка загрузки отдельного фильма.
+message MovieError {
+  int32 id = 1;
+  string message = 2;
+}
+
+// Пустой запрос для поиска последнего фильма.
+message GetLastMovieRequest {}

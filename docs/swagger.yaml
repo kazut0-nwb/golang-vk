@@ -1,0 +1,124 @@
+basePath: /
+definitions:
+  httpapi.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  movie.Movie:
+    properties:
+      director:
+        type: string
+      id:
+        type: integer
+      title:
+        type: string
+      year:
+        type: integer
+    type: object
+  movie.MovieError:
+    properties:
+      id:
+        type: integer
+      message:
+        type: string
+    type: object
+  movie.RangeResult:
+    properties:
+      errors:
+        items:
+          $ref: '#/definitions/movie.MovieError'
+        type: array
+      movies:
+        items:
+          $ref: '#/definitions/movie.Movie'
+        type: array
+    type: object
+info:
+  contact: {}
+  description: HTTP API для загрузки фильмов с внешнего стенда.
+  title: Movie API
+  version: "1.0"
+paths:
+  /last-movie:
+    get:
+      description: Находит фильм с максимальным ID на внешнем стенде.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/movie.Movie'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "408":
+          description: Request Timeout
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "504":
+          description: Gateway Timeout
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      summary: Получить последний доступный фильм
+      tags:
+      - Movies
+  /load-movies:
+    get:
+      description: |-
+        Загружает фильмы с внешнего стенда от from до to включительно.
+        При частичных ошибках возвращает HTTP 207 и списки movies и errors.
+      parameters:
+      - description: Начальный ID фильма, от 1
+        in: query
+        name: from
+        required: true
+        type: integer
+      - description: Конечный ID фильма, не меньше from
+        in: query
+        name: to
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/movie.Movie'
+            type: array
+        "207":
+          description: Multi-Status
+          schema:
+            $ref: '#/definitions/movie.RangeResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/movie.RangeResult'
+        "408":
+          description: Request Timeout
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/movie.RangeResult'
+        "504":
+          description: Gateway Timeout
+          schema:
+            $ref: '#/definitions/httpapi.ErrorResponse'
+      summary: Загрузить фильмы по диапазону ID
+      tags:
+      - Movies
+swagger: "2.0"
