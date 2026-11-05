@@ -1,148 +1,366 @@
 # Movie API
 
-HTTP и gRPC API для загрузки информации о фильмах с внешнего стенда.
+Go-сервис для работы с фильмами, предоставляющий HTTP и gRPC API. Приложение использует PostgreSQL для хранения информации о фильмах и внешний фильм-стенд в качестве источника данных для синхронизации.
 
 ## Возможности
 
-- Загрузка фильмов по диапазону ID.
-- Поиск последнего доступного фильма.
-- HTTP API с JSON-ответами.
+- Синхронизация фильмов с внешнего стенда при запуске приложения.
+- Поиск последнего доступного фильма с помощью экспоненциального и бинарного поиска.
+- Сохранение фильмов в PostgreSQL.
+- Пропуск уже сохранённых фильмов при повторной синхронизации.
+- HTTP API для получения фильмов и последнего доступного фильма.
 - gRPC API на основе Protocol Buffers.
-- Документация Swagger/OpenAPI.
-- Обработка ошибок внешнего стенда, таймаутов и частичных результатов.
+- Swagger/OpenAPI документация для HTTP API.
+- Обработка ошибок, таймаутов и отмены контекста.
+- Graceful shutdown HTTP- и gRPC-серверов.
 
-## Требования
+## Технологии
 
-- Go
-- Доступ к внешнему фильм-стенду (если используются реальные данные).
-
-## Запуск
-
-Из корня проекта выполни:
-
-```powershell
-go run ./cmd/server
-```
-
-По умолчанию запускаются:
-
-- HTTP-сервер на `:8080`.
-- gRPC-сервер на `:50051`.
-
-Для остановки приложения нажми `Ctrl+C`.
-
-## Конфигурация
-
-Настройки передаются через переменные окружения.
-
-| Переменная | Значение по умолчанию | Назначение |
-|---|---|---|
-| `MOVIE_BASE_URL` | `https://homeworksite.site` | Адрес внешнего фильм-стенда |
-| `HTTP_ADDR` | `:8080` | Адрес HTTP-сервера |
-
-Для каждого фильма с ID `id` клиент обращается к адресу:
-
-```text
-{MOVIE_BASE_URL}/{id}/info.0.json
-```
-
-Пример настройки в PowerShell:
-
-```powershell
-$env:MOVIE_BASE_URL = "https://homeworksite.site"
-$env:HTTP_ADDR = ":8080"
-go run ./cmd/server
-```
-
-## HTTP API
-
-### `GET /load-movies?from=1&to=3`
-
-Загружает фильмы в диапазоне ID от `from` до `to` включительно.
-
-Пример:
-
-```powershell
-Invoke-RestMethod "http://localhost:8080/load-movies?from=1&to=3"
-```
-
-При успешной загрузке всех фильмов возвращается JSON-массив фильмов.
-
-При частичных ошибках возвращается HTTP `207 Multi-Status` с массивами `movies` и `errors`.
-
-Основные коды ответов:
-
-- `200 OK` — все фильмы загружены успешно.
-- `207 Multi-Status` — получены частичные результаты.
-- `400 Bad Request` — некорректные параметры диапазона.
-- `404 Not Found` — фильмы не найдены.
-- `502 Bad Gateway` — ошибка внешнего стенда.
-- `504 Gateway Timeout` — превышено время ожидания.
-
-### `GET /last-movie`
-
-Находит последний доступный фильм и возвращает его в JSON.
-
-Пример:
-
-```powershell
-Invoke-RestMethod "http://localhost:8080/last-movie"
-```
-
-### Swagger UI
-
-Документация HTTP API доступна по адресу:
-
-http://localhost:8080/swagger/index.html
-
-## gRPC API
-
-gRPC-сервис `movies.v1.MovieService` предоставляет методы:
-
-- `LoadMovies(LoadMoviesRequest) returns (LoadMoviesResponse)` — загрузка диапазона фильмов.
-- `GetLastMovie(GetLastMovieRequest) returns (Movie)` — поиск последнего фильма.
-
-Protobuf-контракт находится в `api/proto/movies.proto`.
-
-gRPC-сервер по умолчанию слушает порт `50051`.
+- **Go 1.26.4**
+- **PostgreSQL 17**
+- **pgx/v5** — работа с PostgreSQL.
+- **gRPC** — RPC API.
+- **Protocol Buffers** — описание контрактов gRPC.
+- **Swagger/OpenAPI** — документация HTTP API.
+- **Docker Compose** — запуск PostgreSQL.
 
 ## Архитектура проекта
+
+Проект организован с разделением ответственности между слоями:
 
 ```text
 golang-vk/
 ├── api/
-│   └── proto/                 # Protobuf-контракт и сгенерированный код
+│   └── proto/                  # Protobuf-контракты и сгенерированный код
 ├── cmd/
-│   └── server/                # Точка входа приложения
-├── docs/                      # Swagger/OpenAPI
+│   └── server/                 # Точка входа приложения
+├── docs/                       # Swagger/OpenAPI документация
 ├── internal/
 │   ├── adapter/                # Клиент внешнего фильм-стенда
 │   ├── config/                 # Конфигурация приложения
 │   ├── domain/                 # Доменная модель и ошибки
 │   ├── handler/                # HTTP- и gRPC-обработчики
-│   ├── usecase/                # Прикладная бизнес-логика
-│   ├── grpcapi/                # Совместимый код и тесты предыдущей реализации
-│   ├── httpapi/                # Совместимый код и регрессионные тесты
-│   └── movie/                  # Совместимые типы, обёртки и тесты
+│   ├── storage/
+│   │   └── postgres/           # PostgreSQL repository
+│   ├── testutil/               # Тестовые реализации хранилища
+│   └── usecase/                # Бизнес-логика приложения
+├── migrations/                 # SQL-миграции
+├── docker-compose.yml
 ├── go.mod
 ├── go.sum
 └── README.md
 ```
 
-Основные зависимости приложения собираются в `cmd/server/main.go`.
+### Основные компоненты
 
-Бизнес-логика находится в `internal/usecase`, доменная модель — в `internal/domain`, взаимодействие с внешним стендом — в `internal/adapter`. HTTP- и gRPC-обработчики используют общий прикладной сервис.
+- **Adapter** — отвечает за получение информации о фильмах с внешнего стенда.
+- **Domain** — содержит доменную модель фильма и общие ошибки.
+- **Storage** — реализует взаимодействие с PostgreSQL.
+- **Usecase** — содержит бизнес-логику приложения, включая синхронизацию фильмов.
+- **Handler** — обрабатывает HTTP- и gRPC-запросы.
 
-## Проверки
+HTTP и gRPC используют общий прикладной сервис, который взаимодействует с PostgreSQL через repository.
 
-Запустить все тесты:
+### Синхронизация фильмов
+
+При запуске приложения выполняются следующие действия:
+
+1. Устанавливается соединение с PostgreSQL.
+2. Создаётся клиент внешнего фильм-стенда.
+3. `MovieSynchronizer` определяет последний доступный фильм.
+4. Получает список фильмов, уже находящихся в базе данных.
+5. Загружает только отсутствующие фильмы.
+6. Сохраняет полученные данные в PostgreSQL.
+7. После завершения синхронизации запускаются HTTP- и gRPC-серверы.
+
+Для поиска последнего доступного фильма используется экспоненциальный поиск с последующим бинарным поиском.
+
+При повторной синхронизации уже сохранённые фильмы пропускаются, что позволяет избежать повторной загрузки существующих записей.
+
+## Требования
+
+Для запуска приложения необходимы:
+
+- Go версии 1.26.4 или новее.
+- Docker и Docker Compose.
+- Доступ к внешнему фильм-стенду.
+- PostgreSQL.
+
+## Конфигурация
+
+Приложение использует переменные окружения.
+
+| Переменная | Значение по умолчанию | Описание |
+|---|---|---|
+| `MOVIE_BASE_URL` | `https://homeworksite.site` | Базовый URL внешнего фильм-стенда |
+| `HTTP_ADDR` | `:8080` | Адрес HTTP-сервера |
+| `DATABASE_URL` | Обязательная | Строка подключения к PostgreSQL |
+
+Для получения фильма с идентификатором `id` используется адрес:
+
+```text
+{MOVIE_BASE_URL}/{id}/info.0.json
+```
+
+Пример строки подключения к PostgreSQL:
+
+```text
+postgres://movies_user:movies_password@localhost:5432/movies_db?sslmode=disable
+```
+
+## Запуск приложения
+
+### 1. Запуск PostgreSQL
+
+В корне проекта выполни:
+
+```bash
+docker compose up -d
+```
+
+Docker Compose создаст PostgreSQL 17 и настроит:
+
+- Базу данных: `movies_db`
+- Пользователя: `movies_user`
+- Пароль: `movies_password`
+- Порт: `5432`
+
+Данные PostgreSQL сохраняются в Docker volume `postgres_data`.
+
+### 2. Настройка переменных окружения
+
+Пример для PowerShell:
 
 ```powershell
+$env:DATABASE_URL = "postgres://movies_user:movies_password@localhost:5432/movies_db?sslmode=disable"
+$env:MOVIE_BASE_URL = "https://homeworksite.site"
+$env:HTTP_ADDR = ":8080"
+```
+
+Пример для Linux/macOS:
+
+```bash
+export DATABASE_URL="postgres://movies_user:movies_password@localhost:5432/movies_db?sslmode=disable"
+export MOVIE_BASE_URL="https://homeworksite.site"
+export HTTP_ADDR=":8080"
+```
+
+### 3. Применение миграций
+
+Для управления миграциями используется Goose.
+
+Установи Goose:
+
+```bash
+go install github.com/pressly/goose/v3/cmd/goose@latest
+```
+
+Примени миграции:
+
+PowerShell:
+
+```powershell
+goose -dir migrations postgres "$env:DATABASE_URL" up
+```
+
+Linux/macOS:
+
+```bash
+goose -dir migrations postgres "$DATABASE_URL" up
+```
+
+Миграция `00001_create_movies.sql` создаёт таблицу `movies` со следующими полями:
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `id` | INTEGER | Идентификатор фильма, первичный ключ |
+| `title` | TEXT | Название фильма |
+| `year` | INTEGER | Год выпуска |
+| `director` | TEXT | Режиссёр |
+
+Миграции необходимо применить до запуска приложения. Автоматическое применение миграций при старте сервиса не предусмотрено.
+
+### 4. Запуск сервиса
+
+Из корня проекта выполни:
+
+```bash
+go run ./cmd/server
+```
+
+При успешном запуске приложение:
+
+1. Подключится к PostgreSQL.
+2. Выполнит синхронизацию фильмов с внешним стендом.
+3. Запустит HTTP-сервер.
+4. Запустит gRPC-сервер.
+
+По умолчанию:
+
+- HTTP: `localhost:8080`
+- gRPC: `localhost:50051`
+
+Для остановки приложения используй `Ctrl+C`.
+
+## HTTP API
+
+### GET /load-movies
+
+Получение фильмов из PostgreSQL по диапазону идентификаторов.
+
+Параметры:
+
+| Параметр | Тип | Описание |
+|---|---|---|
+| `from` | integer | Начальный ID |
+| `to` | integer | Конечный ID |
+
+Пример запроса:
+
+```http
+GET http://localhost:8080/load-movies?from=1&to=10
+```
+
+Пример ответа:
+
+```json
+[
+  {
+    "id": 1,
+    "title": "Movie 1",
+    "year": 2020,
+    "director": "Director 1"
+  }
+]
+```
+
+Если часть фильмов отсутствует в базе данных, возвращается HTTP `207 Multi-Status` с двумя массивами: `movies` и `errors`.
+
+### GET /last-movie
+
+Получение фильма с максимальным ID из PostgreSQL.
+
+Пример запроса:
+
+```http
+GET http://localhost:8080/last-movie
+```
+
+Пример ответа:
+
+```json
+{
+  "id": 10,
+  "title": "Movie 10",
+  "year": 2024,
+  "director": "Director 10"
+}
+```
+
+### HTTP-коды ответов
+
+| Код | Описание |
+|---|---|
+| `200 OK` | Успешное выполнение запроса |
+| `207 Multi-Status` | Частичный результат загрузки |
+| `400 Bad Request` | Некорректные параметры запроса |
+| `404 Not Found` | Фильм не найден |
+| `502 Bad Gateway` | Ошибка при обращении к зависимостям |
+| `504 Gateway Timeout` | Превышено время ожидания |
+
+## gRPC API
+
+gRPC-сервис описан в `api/proto/movies.proto`.
+
+Сервис `movies.v1.MovieService` предоставляет два метода.
+
+### LoadMovies
+
+```protobuf
+rpc LoadMovies(LoadMoviesRequest) returns (LoadMoviesResponse);
+```
+
+Загружает фильмы из PostgreSQL в указанном диапазоне ID.
+
+Запрос:
+
+```protobuf
+message LoadMoviesRequest {
+  int32 from = 1;
+  int32 to = 2;
+}
+```
+
+Ответ содержит список фильмов и список ошибок.
+
+### GetLastMovie
+
+```protobuf
+rpc GetLastMovie(GetLastMovieRequest) returns (Movie);
+```
+
+Возвращает фильм с максимальным ID из PostgreSQL.
+
+### Обработка ошибок gRPC
+
+Для обработки ошибок используются стандартные коды:
+
+- `InvalidArgument` — некорректные аргументы.
+- `NotFound` — фильм не найден.
+- `Canceled` — запрос отменён.
+- `DeadlineExceeded` — превышено время ожидания.
+- `Unavailable` — ошибка внешней зависимости или хранилища.
+
+## Swagger
+
+Документация HTTP API доступна через Swagger UI:
+
+[http://localhost:8080/swagger/index.html](http://localhost:8080/swagger/index.html)
+
+Swagger позволяет просматривать доступные HTTP-методы, параметры запросов и структуру ответов.
+
+## Тестирование
+
+Для запуска всех тестов выполни:
+
+```bash
 go test ./...
 ```
 
-Выполнить статическую проверку:
+Для запуска тестов с подробным выводом:
 
-```powershell
+```bash
+go test ./... -v
+```
+
+Для проверки использования конкурентного доступа:
+
+```bash
+go test -race ./...
+```
+
+Для статического анализа:
+
+```bash
 go vet ./...
 ```
+
+Интеграционные тесты PostgreSQL используют переменную `DATABASE_URL`. Если она не задана, тесты repository пропускаются.
+
+**Важно:** интеграционные тесты PostgreSQL очищают таблицу `movies` перед выполнением. Для их запуска используй отдельную тестовую базу данных, а не базу с рабочими данными.
+
+## Остановка PostgreSQL
+
+Для остановки контейнеров:
+
+```bash
+docker compose down
+```
+
+Для удаления контейнеров вместе с сохранёнными данными:
+
+```bash
+docker compose down -v
+```
+
+**Внимание:** команда `docker compose down -v` удаляет Docker volume с данными PostgreSQL.
