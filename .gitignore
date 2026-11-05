@@ -1,4 +1,7 @@
 # Скомпилированные файлы
+.env
+.env.*
+!.env.example
 *.exe
 *.exe~
 *.dll

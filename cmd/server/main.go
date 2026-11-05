@@ -16,6 +16,7 @@ import (
 	"my-go-app/internal/adapter"
 	"my-go-app/internal/config"
 	"my-go-app/internal/handler"
+	"my-go-app/internal/storage/postgres"
 	"my-go-app/internal/usecase"
 
 	"google.golang.org/grpc"
@@ -32,11 +33,53 @@ import (
 func main() {
 	cfg := config.Load()
 
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	// Подключение к PostgreSQL.
+	dbCtx, dbCancel := context.WithTimeout(
+		ctx,
+		10*time.Second,
+	)
+
+	pool, err := postgres.NewPool(dbCtx, cfg.DatabaseURL)
+	dbCancel()
+
+	if err != nil {
+		log.Fatalf("ошибка подключения к PostgreSQL: %v", err)
+	}
+
+	defer pool.Close()
+
+	movieRepository := postgres.NewMovieRepository(pool)
+
+	log.Println("успешное подключение к PostgreSQL")
+
 	client := adapter.NewClient(
 		cfg.MovieBaseURL,
 		5*time.Second,
 	)
-	service := usecase.NewService(client)
+
+	// Синхронизация фильмов с внешнего стенда.
+	synchronizer := usecase.NewMovieSynchronizer(
+		client,
+		movieRepository,
+	)
+
+	log.Println("начинается синхронизация фильмов...")
+
+	if err := synchronizer.Sync(ctx); err != nil {
+		pool.Close()
+		log.Fatalf("ошибка синхронизации фильмов: %v", err)
+	}
+
+	log.Println("синхронизация фильмов завершена")
+
+	service := usecase.NewService(movieRepository)
 
 	// HTTP API и Swagger.
 	mux := http.NewServeMux()
@@ -67,14 +110,6 @@ func main() {
 		grpcServer,
 		handler.NewGRPCServer(service),
 	)
-
-	// Корректное завершение обоих серверов.
-	ctx, stop := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
-	)
-	defer stop()
 
 	errCh := make(chan error, 2)
 
