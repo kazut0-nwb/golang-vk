@@ -2,14 +2,12 @@ package grpcapi
 
 import (
 	"context"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
-	"time"
 
 	moviepb "my-go-app/api/proto"
+	"my-go-app/internal/domain"
 	"my-go-app/internal/movie"
+	"my-go-app/internal/testutil"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -18,30 +16,16 @@ import (
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 
-	upstream := httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/1/info.0.json":
-				fmt.Fprint(w, `{
-					"id": 1,
-					"title": "Movie 1",
-					"year": 2024,
-					"director": "Director 1"
-				}`)
-
-			case "/2/info.0.json":
-				http.NotFound(w, r)
-
-			default:
-				http.NotFound(w, r)
-			}
+	storage := testutil.NewMovieStorage(
+		domain.Movie{
+			ID:       1,
+			Title:    "Movie 1",
+			Year:     2024,
+			Director: "Director 1",
 		},
-	))
+	)
 
-	t.Cleanup(upstream.Close)
-
-	client := movie.NewClient(upstream.URL, time.Second)
-	service := movie.NewService(client)
+	service := movie.NewService(nil, storage)
 
 	return NewServer(service)
 }
