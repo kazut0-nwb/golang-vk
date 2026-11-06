@@ -55,9 +55,24 @@ func main() {
 
 	defer pool.Close()
 
-	movieRepository := postgres.NewMovieRepository(pool)
-
 	log.Println("успешное подключение к PostgreSQL")
+
+	// Применение миграций перед использованием базы данных.
+	migrationCtx, migrationCancel := context.WithTimeout(
+		ctx,
+		30*time.Second,
+	)
+
+	if err := postgres.RunMigrations(migrationCtx, pool); err != nil {
+		migrationCancel()
+		log.Fatalf("ошибка применения миграций PostgreSQL: %v", err)
+	}
+
+	migrationCancel()
+
+	log.Println("миграции PostgreSQL успешно применены")
+
+	movieRepository := postgres.NewMovieRepository(pool)
 
 	client := adapter.NewClient(
 		cfg.MovieBaseURL,
