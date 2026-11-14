@@ -3,32 +3,18 @@ package movie
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
-	"strings"
-	"sync/atomic"
 	"testing"
-	"time"
+
+	"my-go-app/internal/domain"
+	"my-go-app/internal/testutil"
 )
 
 func TestLoadMovies(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/1/info.0.json":
-			fmt.Fprint(w, `{"id":1,"title":"Movie 1"}`)
-		case "/2/info.0.json":
-			http.NotFound(w, r)
-		case "/3/info.0.json":
-			http.Error(w, "upstream failure", http.StatusBadGateway)
-		default:
-			http.Error(w, "unexpected", 500)
-		}
-	}))
-	defer server.Close()
+	storage := testutil.NewMovieStorage(
+		domain.Movie{ID: 1, Title: "Movie 1"},
+	)
 
-	service := NewService(NewClient(server.URL, time.Second))
+	service := NewService(nil, storage)
 
 	res, err := service.LoadMovies(context.Background(), 1, 3)
 	if err != nil {
@@ -39,18 +25,27 @@ func TestLoadMovies(t *testing.T) {
 		t.Fatalf("неверные фильмы: %+v", res.Movies)
 	}
 
-	if len(res.Errors) != 2 || res.Errors[0].ID != 2 || res.Errors[1].ID != 3 {
+	if len(res.Errors) != 2 ||
+		res.Errors[0].ID != 2 ||
+		res.Errors[1].ID != 3 {
 		t.Fatalf("неверные ошибки: %+v", res.Errors)
 	}
 
 	if !errors.Is(res.Errors[0].Cause, ErrMovieNotFound) {
-		t.Fatalf("ожидали 404, получили %v", res.Errors[0].Cause)
+		t.Fatalf("ожидали ErrMovieNotFound, получили %v",
+			res.Errors[0].Cause)
 	}
 
 	for _, r := range [][2]int{{0, 2}, {3, 2}, {-1, 2}} {
-		_, err := service.LoadMovies(context.Background(), r[0], r[1])
+		_, err := service.LoadMovies(
+			context.Background(),
+			r[0],
+			r[1],
+		)
+
 		if !errors.Is(err, ErrInvalidRange) {
-			t.Fatalf("диапазон %v должен быть ошибкой, получили %v", r, err)
+			t.Fatalf("диапазон %v должен быть ошибкой, получили %v",
+				r, err)
 		}
 	}
 
@@ -64,64 +59,52 @@ func TestLoadMovies(t *testing.T) {
 }
 
 func TestGetLastMovie(t *testing.T) {
-	var count atomic.Int64
+	storage := testutil.NewMovieStorage(
+		domain.Movie{ID: 1, Title: "Movie 1"},
+		domain.Movie{ID: 2, Title: "Movie 2"},
+		domain.Movie{ID: 3, Title: "Movie 3"},
+		domain.Movie{ID: 4, Title: "Movie 4"},
+		domain.Movie{ID: 5, Title: "Movie 5"},
+		domain.Movie{ID: 6, Title: "Movie 6"},
+		domain.Movie{ID: 7, Title: "Movie 7"},
+	)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count.Add(1)
+	service := NewService(nil, storage)
 
-		segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		if len(segments) != 2 || segments[1] != "info.0.json" {
-			http.Error(w, "unexpected path", 500)
-			return
-		}
-
-		id, err := strconv.Atoi(segments[0])
-		if err != nil {
-			http.Error(w, "invalid id", 400)
-			return
-		}
-
-		if id > 7 {
-			http.NotFound(w, r)
-			return
-		}
-
-		fmt.Fprintf(w, `{"id":%d,"title":"Movie"}`, id)
-	}))
-	defer server.Close()
-
-	service := NewService(NewClient(server.URL, time.Second))
-
-	m, err := service.GetLastMovie(context.Background())
+	movie, err := service.GetLastMovie(context.Background())
 	if err != nil {
-		t.Fatalf("ошибка поиска: %v", err)
+		t.Fatalf("ошибка получения последнего фильма: %v", err)
 	}
 
-	if m.ID != 7 {
-		t.Fatalf("ожидали фильм 7, получили %+v", m)
-	}
-
-	if count.Load() > 8 {
-		t.Fatalf("слишком много HTTP-запросов: %d", count.Load())
+	if movie.ID != 7 {
+		t.Fatalf("ожидали фильм 7, получили %+v", movie)
 	}
 }
 
-func TestGetLastMovieUpstreamError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/1/info.0.json" {
-			fmt.Fprint(w, `{"id":1}`)
-			return
-		}
-		http.Error(w, "not working", http.StatusBadGateway)
-	}))
-	defer server.Close()
+type failingMovieStorage struct {
+	*testutil.MovieStorage
+	err error
+}
 
-	service := NewService(NewClient(server.URL, time.Second))
+func (s *failingMovieStorage) GetLastMovie(
+	ctx context.Context,
+) (*domain.Movie, error) {
+	return nil, s.err
+}
+
+func TestGetLastMovieStorageError(t *testing.T) {
+	storageError := errors.New("database unavailable")
+
+	storage := &failingMovieStorage{
+		MovieStorage: testutil.NewMovieStorage(),
+		err:          storageError,
+	}
+
+	service := NewService(nil, storage)
 
 	_, err := service.GetLastMovie(context.Background())
 
-	var upstream *UpstreamStatusError
-	if !errors.As(err, &upstream) || upstream.StatusCode != 502 {
-		t.Fatalf("ожидали 502, получили %v", err)
+	if !errors.Is(err, storageError) {
+		t.Fatalf("ожидали ошибку PostgreSQL, получили %v", err)
 	}
 }

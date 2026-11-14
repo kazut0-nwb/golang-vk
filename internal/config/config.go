@@ -10,12 +10,14 @@ const (
 type Config struct {
 	MovieBaseURL string
 	HTTPAddr     string
+	DatabaseURL  string
 }
 
 func Load() Config {
 	return Config{
 		MovieBaseURL: getEnv("MOVIE_BASE_URL", DefaultMovieBaseURL),
 		HTTPAddr:     getEnv("HTTP_ADDR", DefaultHTTPAddr),
+		DatabaseURL:  os.Getenv("DATABASE_URL"),
 	}
 }
 

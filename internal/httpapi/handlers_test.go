@@ -2,36 +2,37 @@ package httpapi
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
+	"my-go-app/internal/domain"
 	"my-go-app/internal/movie"
+	"my-go-app/internal/testutil"
+
+	"context"
 )
+
+type timeoutMovieStorage struct {
+	*testutil.MovieStorage
+}
+
+func (s *timeoutMovieStorage) GetMovieByID(
+	ctx context.Context,
+	id int,
+) (*domain.Movie, error) {
+	return nil, context.DeadlineExceeded
+}
 
 func newTestMux(t *testing.T) *http.ServeMux {
 	t.Helper()
 
-	upstream := httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/1/info.0.json":
-				fmt.Fprint(w, `{"id":1,"title":"Movie 1"}`)
-			case "/2/info.0.json":
-				fmt.Fprint(w, `{"id":2,"title":"Movie 2"}`)
-			case "/3/info.0.json", "/4/info.0.json":
-				http.NotFound(w, r)
-			default:
-				http.Error(w, "ошибка стенда", http.StatusServiceUnavailable)
-			}
-		},
-	))
-	t.Cleanup(upstream.Close)
+	storage := testutil.NewMovieStorage(
+		domain.Movie{ID: 1, Title: "Movie 1"},
+		domain.Movie{ID: 2, Title: "Movie 2"},
+	)
 
-	client := movie.NewClient(upstream.URL, time.Second)
-	service := movie.NewService(client)
+	service := movie.NewService(nil, storage)
 
 	mux := http.NewServeMux()
 	NewHandler(service).RegisterRoutes(mux)
@@ -50,7 +51,7 @@ func TestLoadMoviesHandler(t *testing.T) {
 		{"успешная загрузка", "/load-movies?from=1&to=2", 200},
 		{"частичная ошибка", "/load-movies?from=1&to=3", 207},
 		{"все фильмы отсутствуют", "/load-movies?from=3&to=4", 404},
-		{"ошибка стенда", "/load-movies?from=5&to=5", 502},
+		{"фильм отсутствует в БД", "/load-movies?from=5&to=5", 404},
 		{"нет from", "/load-movies?to=2", 400},
 		{"нет to", "/load-movies?from=1", 400},
 		{"некорректное число", "/load-movies?from=abc&to=2", 400},
@@ -154,13 +155,11 @@ func TestLoadMoviesTimeoutReturns504(t *testing.T) {
 	))
 	defer upstream.Close()
 
-	// Устанавливаем короткий таймаут клиента.
-	client := movie.NewClient(
-		upstream.URL,
-		50*time.Millisecond,
-	)
+	storage := &timeoutMovieStorage{
+		MovieStorage: testutil.NewMovieStorage(),
+	}
 
-	service := movie.NewService(client)
+	service := movie.NewService(nil, storage)
 
 	mux := http.NewServeMux()
 	NewHandler(service).RegisterRoutes(mux)

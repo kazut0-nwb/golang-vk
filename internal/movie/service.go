@@ -17,9 +17,12 @@ type Service struct {
 	inner *usecase.Service
 }
 
-func NewService(client *Client) *Service {
+func NewService(
+	_ *Client,
+	storage usecase.MovieStorage,
+) *Service {
 	return &Service{
-		inner: usecase.NewService(client),
+		inner: usecase.NewService(storage),
 	}
 }
 
