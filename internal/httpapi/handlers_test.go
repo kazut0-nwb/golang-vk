@@ -9,7 +9,20 @@ import (
 	"my-go-app/internal/domain"
 	"my-go-app/internal/movie"
 	"my-go-app/internal/testutil"
+
+	"context"
 )
+
+type timeoutMovieStorage struct {
+	*testutil.MovieStorage
+}
+
+func (s *timeoutMovieStorage) GetMovieByID(
+	ctx context.Context,
+	id int,
+) (*domain.Movie, error) {
+	return nil, context.DeadlineExceeded
+}
 
 func newTestMux(t *testing.T) *http.ServeMux {
 	t.Helper()
@@ -142,13 +155,11 @@ func TestLoadMoviesTimeoutReturns504(t *testing.T) {
 	))
 	defer upstream.Close()
 
-	// Устанавливаем короткий таймаут клиента.
-	client := movie.NewClient(
-		upstream.URL,
-		50*time.Millisecond,
-	)
+	storage := &timeoutMovieStorage{
+		MovieStorage: testutil.NewMovieStorage(),
+	}
 
-	service := movie.NewService(client)
+	service := movie.NewService(nil, storage)
 
 	mux := http.NewServeMux()
 	NewHandler(service).RegisterRoutes(mux)
