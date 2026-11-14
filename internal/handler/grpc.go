@@ -14,10 +14,10 @@ import (
 
 type GRPCServer struct {
 	moviepb.UnimplementedMovieServiceServer
-	service *usecase.Service
+	service usecase.MovieUseCase
 }
 
-func NewGRPCServer(service *usecase.Service) *GRPCServer {
+func NewGRPCServer(service usecase.MovieUseCase) *GRPCServer {
 	return &GRPCServer{service: service}
 }
 

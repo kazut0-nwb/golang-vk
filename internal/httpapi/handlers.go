@@ -101,7 +101,27 @@ func (h *Handler) LoadMovies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Проверяем, завершились ли все запросы таймаутом.
+	allTimeout := true
+
+	for _, item := range result.Errors {
+		if !errors.Is(item.Cause, context.DeadlineExceeded) {
+			allTimeout = false
+			break
+		}
+	}
+
+	if allTimeout {
+		writeError(
+			w,
+			http.StatusGatewayTimeout,
+			"превышено время ожидания",
+		)
+		return
+	}
+
 	writeJSON(w, http.StatusBadGateway, result)
+
 }
 
 // GetLastMovie godoc
