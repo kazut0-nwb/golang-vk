@@ -144,3 +144,56 @@ func TestHTTPMethod(t *testing.T) {
 		t.Fatalf("ожидали HTTP 405, получили %d", rec.Code)
 	}
 }
+
+func TestLoadMoviesTimeoutReturns504(t *testing.T) {
+	// Сервер ожидает отмены запроса клиентом.
+	upstream := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			<-r.Context().Done()
+		},
+	))
+	defer upstream.Close()
+
+	// Устанавливаем короткий таймаут клиента.
+	client := movie.NewClient(
+		upstream.URL,
+		50*time.Millisecond,
+	)
+
+	service := movie.NewService(client)
+
+	mux := http.NewServeMux()
+	NewHandler(service).RegisterRoutes(mux)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/load-movies?from=1&to=1",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf(
+			"ожидали HTTP 504, получили %d: %s",
+			rec.Code,
+			rec.Body.String(),
+		)
+	}
+
+	var response ErrorResponse
+	if err := json.Unmarshal(
+		rec.Body.Bytes(),
+		&response,
+	); err != nil {
+		t.Fatalf("ошибка декодирования JSON: %v", err)
+	}
+
+	if response.Error != "превышено время ожидания" {
+		t.Fatalf(
+			"неожиданное сообщение: %q",
+			response.Error,
+		)
+	}
+}

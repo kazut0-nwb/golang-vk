@@ -13,15 +13,17 @@ import (
 )
 
 type HTTPHandler struct {
-	service *usecase.Service
+	service usecase.MovieUseCase
 }
 
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewHTTPHandler(service *usecase.Service) *HTTPHandler {
-	return &HTTPHandler{service: service}
+func NewHTTPHandler(service usecase.MovieUseCase) *HTTPHandler {
+	return &HTTPHandler{
+		service: service,
+	}
 }
 
 func (h *HTTPHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -108,7 +110,27 @@ func (h *HTTPHandler) LoadMovies(
 		return
 	}
 
+	// Проверяем, завершились ли все запросы таймаутом.
+	allTimeout := true
+
+	for _, item := range result.Errors {
+		if !errors.Is(item.Cause, context.DeadlineExceeded) {
+			allTimeout = false
+			break
+		}
+	}
+
+	if allTimeout {
+		writeError(
+			w,
+			http.StatusGatewayTimeout,
+			"превышено время ожидания",
+		)
+		return
+	}
+
 	writeJSON(w, http.StatusBadGateway, result)
+
 }
 
 // GetLastMovie godoc
