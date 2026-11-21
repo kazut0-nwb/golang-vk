@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -27,10 +28,31 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("не удалось создать пул PostgreSQL: %w", err)
 	}
 
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("не удалось подключиться к PostgreSQL: %w", err)
-	}
+	// Повторяем подключение, если PostgreSQL временно недоступен.
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
 
-	return pool, nil
+	var lastErr error
+
+	for {
+		lastErr = pool.Ping(ctx)
+
+		if lastErr == nil {
+			return pool, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			pool.Close()
+
+			return nil, fmt.Errorf(
+				"не удалось подключиться к PostgreSQL: %w; последняя ошибка: %v",
+				ctx.Err(),
+				lastErr,
+			)
+
+		case <-ticker.C:
+			// Повторяем попытку подключения.
+		}
+	}
 }
