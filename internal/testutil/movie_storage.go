@@ -2,11 +2,13 @@ package testutil
 
 import (
 	"context"
+	"sync"
 
 	"my-go-app/internal/domain"
 )
 
 type MovieStorage struct {
+	mu     sync.RWMutex
 	Movies map[int]domain.Movie
 }
 
@@ -26,7 +28,11 @@ func (s *MovieStorage) SaveMovie(
 	ctx context.Context,
 	movie *domain.Movie,
 ) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.Movies[movie.ID] = *movie
+
 	return nil
 }
 
@@ -34,6 +40,9 @@ func (s *MovieStorage) GetMovieByID(
 	ctx context.Context,
 	id int,
 ) (*domain.Movie, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	movie, ok := s.Movies[id]
 	if !ok {
 		return nil, domain.ErrMovieNotFound
@@ -45,6 +54,9 @@ func (s *MovieStorage) GetMovieByID(
 func (s *MovieStorage) GetMovies(
 	ctx context.Context,
 ) ([]domain.Movie, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	movies := make([]domain.Movie, 0, len(s.Movies))
 
 	for _, movie := range s.Movies {
@@ -57,6 +69,9 @@ func (s *MovieStorage) GetMovies(
 func (s *MovieStorage) GetLastMovie(
 	ctx context.Context,
 ) (*domain.Movie, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	var last domain.Movie
 	found := false
 

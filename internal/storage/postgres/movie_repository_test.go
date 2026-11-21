@@ -141,3 +141,62 @@ func TestGetMovieByIDNotFound(t *testing.T) {
 		t.Errorf("ожидалась ErrMovieNotFound, получена %v", err)
 	}
 }
+
+func TestGetMoviesByIDs(t *testing.T) {
+	repo := setupTestRepository(t)
+	ctx := context.Background()
+
+	movies := []domain.Movie{
+		{ID: 1, Title: "Solaris", Year: 1972, Director: "Andrei Tarkovsky"},
+		{ID: 2, Title: "Stalker", Year: 1979, Director: "Andrei Tarkovsky"},
+		{ID: 3, Title: "The Godfather", Year: 1972, Director: "Francis Ford Coppola"},
+	}
+
+	for i := range movies {
+		if err := repo.SaveMovie(ctx, &movies[i]); err != nil {
+			t.Fatalf("ошибка сохранения фильма: %v", err)
+		}
+	}
+
+	result, err := repo.GetMoviesByIDs(
+		ctx,
+		[]int{3, 1, 999, 3},
+	)
+	if err != nil {
+		t.Fatalf("ошибка получения фильмов: %v", err)
+	}
+
+	if len(result) != 2 {
+		t.Fatalf(
+			"ожидали 2 фильма, получили %d",
+			len(result),
+		)
+	}
+
+	if result[0].ID != 1 || result[1].ID != 3 {
+		t.Fatalf(
+			"неверный результат: %+v",
+			result,
+		)
+	}
+}
+
+func TestGetMoviesByIDsEmpty(t *testing.T) {
+	repo := setupTestRepository(t)
+
+	result, err := repo.GetMoviesByIDs(
+		context.Background(),
+		[]int{},
+	)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("ожидался пустой массив, получен nil")
+	}
+
+	if len(result) != 0 {
+		t.Fatalf("ожидали 0 фильмов, получили %d", len(result))
+	}
+}

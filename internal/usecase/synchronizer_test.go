@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"my-go-app/internal/domain"
 	"my-go-app/internal/testutil"
@@ -12,9 +14,13 @@ import (
 
 // Тестовая реализация внешнего источника фильмов.
 type synchronizerTestProvider struct {
+	mu          sync.Mutex
 	movies      map[int]domain.Movie
 	fetchErrors map[int]error
 	calls       map[int]int
+	active      int
+	maxActive   int
+	delay       time.Duration
 }
 
 func newSynchronizerTestProvider(
@@ -41,18 +47,73 @@ func (p *synchronizerTestProvider) FetchMovie(
 		return nil, err
 	}
 
-	p.calls[id]++
+	p.mu.Lock()
 
-	if err, ok := p.fetchErrors[id]; ok {
-		return nil, err
+	p.calls[id]++
+	p.active++
+
+	if p.active > p.maxActive {
+		p.maxActive = p.active
 	}
 
-	movie, ok := p.movies[id]
-	if !ok {
+	fetchErr, hasError := p.fetchErrors[id]
+	movie, exists := p.movies[id]
+	delay := p.delay
+
+	p.mu.Unlock()
+
+	defer func() {
+		p.mu.Lock()
+		p.active--
+		p.mu.Unlock()
+	}()
+
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	if hasError {
+		return nil, fetchErr
+	}
+
+	if !exists {
 		return nil, domain.ErrMovieNotFound
 	}
 
 	return &movie, nil
+}
+
+func (p *synchronizerTestProvider) callCount(id int) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.calls[id]
+}
+
+func (p *synchronizerTestProvider) totalCalls() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	total := 0
+	for _, count := range p.calls {
+		total += count
+	}
+
+	return total
+}
+
+func (p *synchronizerTestProvider) maxConcurrent() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.maxActive
 }
 
 // Тестовая реализация хранилища с возможностью
@@ -63,6 +124,7 @@ type synchronizerTestStorage struct {
 	getMoviesErr error
 	saveErr      error
 	saveCalls    int
+	mu           sync.Mutex
 }
 
 func newSynchronizerTestStorage(
@@ -95,13 +157,23 @@ func (s *synchronizerTestStorage) SaveMovie(
 		return err
 	}
 
+	s.mu.Lock()
 	s.saveCalls++
+	saveErr := s.saveErr
+	s.mu.Unlock()
 
-	if s.saveErr != nil {
-		return s.saveErr
+	if saveErr != nil {
+		return saveErr
 	}
 
 	return s.MovieStorage.SaveMovie(ctx, movie)
+}
+
+func (s *synchronizerTestStorage) saveCallCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.saveCalls
 }
 
 func testMovie(id int) domain.Movie {
@@ -383,5 +455,50 @@ func TestMovieSynchronizerSyncRejectsMismatchedID(t *testing.T) {
 
 	if len(storage.Movies) != 0 {
 		t.Fatal("фильм с некорректным ID был сохранён")
+	}
+}
+
+func TestMovieSynchronizerUsesWorkerPool(t *testing.T) {
+	movies := make([]domain.Movie, 0, 20)
+
+	for id := 1; id <= 20; id++ {
+		movies = append(movies, testMovie(id))
+	}
+
+	provider := newSynchronizerTestProvider(movies...)
+	provider.delay = 20 * time.Millisecond
+
+	storage := newSynchronizerTestStorage()
+
+	synchronizer := NewMovieSynchronizer(
+		provider,
+		storage,
+	)
+
+	if err := synchronizer.Sync(context.Background()); err != nil {
+		t.Fatalf("ошибка синхронизации: %v", err)
+	}
+
+	maxConcurrent := provider.maxConcurrent()
+
+	if maxConcurrent <= 1 {
+		t.Fatalf(
+			"ожидалась параллельная загрузка, максимум одновременно: %d",
+			maxConcurrent,
+		)
+	}
+
+	if maxConcurrent > defaultSyncWorkers {
+		t.Fatalf(
+			"превышен лимит workers: %d",
+			maxConcurrent,
+		)
+	}
+
+	if len(storage.Movies) != 20 {
+		t.Fatalf(
+			"ожидали 20 фильмов, получили %d",
+			len(storage.Movies),
+		)
 	}
 }

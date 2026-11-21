@@ -24,6 +24,8 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 
 	_ "my-go-app/docs"
+
+	redisstore "my-go-app/internal/storage/redis"
 )
 
 // @title Movie API
@@ -76,13 +78,40 @@ func main() {
 
 	client := adapter.NewClient(
 		cfg.MovieBaseURL,
+		15*time.Second,
+	)
+
+	// Подключение к Redis.
+	redisCtx, redisCancel := context.WithTimeout(
+		ctx,
 		5*time.Second,
 	)
 
+	redisClient, err := redisstore.NewClient(
+		redisCtx,
+		cfg.RedisAddr,
+	)
+
+	redisCancel()
+
+	if err != nil {
+		log.Fatalf("ошибка подключения к Redis: %v", err)
+	}
+
+	defer redisClient.Close()
+
+	log.Println("успешное подключение к Redis")
+
 	// Синхронизация фильмов с внешнего стенда.
-	synchronizer := usecase.NewMovieSynchronizer(
+	synchronizer := usecase.NewMovieSynchronizerWithWorkers(
 		client,
 		movieRepository,
+		cfg.SyncWorkers,
+	)
+
+	log.Printf(
+		"количество workers синхронизации: %d",
+		cfg.SyncWorkers,
 	)
 
 	log.Println("начинается синхронизация фильмов...")
@@ -94,12 +123,51 @@ func main() {
 
 	log.Println("синхронизация фильмов завершена")
 
+	indexCtx, indexCancel := context.WithTimeout(
+		ctx,
+		30*time.Second,
+	)
+
+	movies, err := movieRepository.GetMovies(indexCtx)
+	if err != nil {
+		indexCancel()
+		log.Fatalf("не удалось получить фильмы для индексации: %v", err)
+	}
+
+	movieIndex := redisstore.NewIndex(redisClient)
+
+	if err := movieIndex.Rebuild(indexCtx, movies); err != nil {
+		indexCancel()
+		log.Fatalf("ошибка построения индекса Redis: %v", err)
+	}
+
+	indexCancel()
+
+	log.Printf(
+		"обратный индекс Redis построен: %d фильмов",
+		len(movies),
+	)
+
+	// Создаём Redis-кэш поисковых ответов.
+	searchCache := redisstore.NewCache(redisClient)
+
+	// Создаём поисковый сервис.
+	searchService := usecase.NewSearchService(
+		movieRepository,
+		movieIndex,
+		searchCache,
+	)
+
+	// Существующий сервис ДЗ5 оставляем без изменений.
 	service := usecase.NewService(movieRepository)
 
 	// HTTP API и Swagger.
 	mux := http.NewServeMux()
 
-	httpHandler := handler.NewHTTPHandler(service)
+	httpHandler := handler.NewHTTPHandler(
+		service,
+		searchService,
+	)
 	httpHandler.RegisterRoutes(mux)
 
 	mux.Handle("/swagger/", httpSwagger.Handler(

@@ -22,3 +22,11 @@ type MovieUseCase interface {
 // Проверяем на этапе компиляции, что Service
 // реализует интерфейс MovieUseCase.
 var _ MovieUseCase = (*Service)(nil)
+
+// MovieSearchUseCase описывает поисковые операции.
+type MovieSearchUseCase interface {
+	Search(
+		ctx context.Context,
+		query string,
+	) ([]domain.Movie, error)
+}

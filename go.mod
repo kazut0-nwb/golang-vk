@@ -12,6 +12,11 @@ require (
 )
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	go.uber.org/atomic v1.12.0 // indirect
+)
+
+require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.20.0 // indirect
@@ -23,6 +28,7 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
+	github.com/redis/go-redis/v9 v9.23.0
 	github.com/rogpeppe/go-internal v1.6.1 // indirect
 	github.com/sethvargo/go-retry v0.5.0 // indirect
 	github.com/swaggo/files/v2 v2.0.0 // indirect

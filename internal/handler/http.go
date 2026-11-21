@@ -7,28 +7,95 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"my-go-app/internal/domain"
 	"my-go-app/internal/usecase"
 )
 
 type HTTPHandler struct {
-	service usecase.MovieUseCase
+	service       usecase.MovieUseCase
+	searchService usecase.MovieSearchUseCase
 }
 
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewHTTPHandler(service usecase.MovieUseCase) *HTTPHandler {
-	return &HTTPHandler{
+func NewHTTPHandler(
+	service usecase.MovieUseCase,
+	searchServices ...usecase.MovieSearchUseCase,
+) *HTTPHandler {
+	h := &HTTPHandler{
 		service: service,
 	}
+
+	if len(searchServices) > 0 {
+		h.searchService = searchServices[0]
+	}
+
+	return h
 }
 
 func (h *HTTPHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /load-movies", h.LoadMovies)
 	mux.HandleFunc("GET /last-movie", h.GetLastMovie)
+	mux.HandleFunc("GET /search", h.SearchMovies)
+}
+
+// SearchMovies godoc
+// @Summary Поиск фильмов
+// @Description Поиск по словам из названия и имени режиссёра.
+// @Description Для нескольких слов используется логика AND.
+// @Tags Movies
+// @Produce json
+// @Param q query string true "Поисковый запрос"
+// @Success 200 {array} domain.Movie
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /search [get]
+func (h *HTTPHandler) SearchMovies(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+
+	if query == "" {
+		writeError(
+			w,
+			http.StatusBadRequest,
+			"параметр q не должен быть пустым",
+		)
+		return
+	}
+
+	if h.searchService == nil {
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"поисковый сервис не инициализирован",
+		)
+		return
+	}
+
+	movies, err := h.searchService.Search(
+		r.Context(),
+		query,
+	)
+	if err != nil {
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			fmt.Sprintf("ошибка поиска фильмов: %v", err),
+		)
+		return
+	}
+
+	if movies == nil {
+		movies = make([]domain.Movie, 0)
+	}
+
+	writeJSON(w, http.StatusOK, movies)
 }
 
 func parseQueryInt(r *http.Request, name string) (int, error) {

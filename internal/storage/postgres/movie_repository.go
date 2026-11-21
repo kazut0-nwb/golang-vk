@@ -151,3 +151,64 @@ func (r *MovieRepository) GetMovies(
 
 	return movies, nil
 }
+
+// GetMoviesByIDs возвращает фильмы по списку ID.
+// Порядок результата определяется PostgreSQL.
+func (r *MovieRepository) GetMoviesByIDs(
+	ctx context.Context,
+	ids []int,
+) ([]domain.Movie, error) {
+	movies := make([]domain.Movie, 0)
+
+	if len(ids) == 0 {
+		return movies, nil
+	}
+
+	movieIDs := make([]int32, len(ids))
+	for i, id := range ids {
+		movieIDs[i] = int32(id)
+	}
+
+	query := `
+		SELECT id, title, year, director
+		FROM movies
+		WHERE id = ANY($1::integer[])
+		ORDER BY id
+	`
+
+	rows, err := r.pool.Query(ctx, query, movieIDs)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"не удалось получить фильмы по ID: %w",
+			err,
+		)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var movie domain.Movie
+
+		if err := rows.Scan(
+			&movie.ID,
+			&movie.Title,
+			&movie.Year,
+			&movie.Director,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"ошибка чтения фильма: %w",
+				err,
+			)
+		}
+
+		movies = append(movies, movie)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(
+			"ошибка обхода результатов: %w",
+			err,
+		)
+	}
+
+	return movies, nil
+}
