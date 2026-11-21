@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -28,18 +29,42 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("не удалось создать пул PostgreSQL: %w", err)
 	}
 
-	// Повторяем подключение, если PostgreSQL временно недоступен.
-	ticker := time.NewTicker(250 * time.Millisecond)
+	const (
+		pingTimeout   = 2 * time.Second
+		retryInterval = 250 * time.Millisecond
+	)
+
+	ticker := time.NewTicker(retryInterval)
 	defer ticker.Stop()
 
 	var lastErr error
 
 	for {
-		lastErr = pool.Ping(ctx)
+		// Каждая попытка имеет собственный таймаут.
+		pingCtx, pingCancel := context.WithTimeout(ctx, pingTimeout)
+		pingErr := pool.Ping(pingCtx)
+		pingCancel()
 
-		if lastErr == nil {
+		if pingErr == nil {
 			return pool, nil
 		}
+
+		lastErr = pingErr
+
+		if ctx.Err() != nil {
+			pool.Close()
+
+			return nil, fmt.Errorf(
+				"не удалось подключиться к PostgreSQL: %w; последняя ошибка: %v",
+				ctx.Err(),
+				lastErr,
+			)
+		}
+
+		log.Printf(
+			"PostgreSQL пока недоступен, повторная попытка: %v",
+			lastErr,
+		)
 
 		select {
 		case <-ctx.Done():
@@ -52,7 +77,6 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 			)
 
 		case <-ticker.C:
-			// Повторяем попытку подключения.
 		}
 	}
 }
