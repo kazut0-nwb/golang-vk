@@ -45,7 +45,7 @@ func main() {
 	// Подключение к PostgreSQL.
 	dbCtx, dbCancel := context.WithTimeout(
 		ctx,
-		30*time.Second,
+		10*time.Second,
 	)
 
 	pool, err := postgres.NewPool(dbCtx, cfg.DatabaseURL)
