@@ -1,6 +1,10 @@
 # Скомпилированные файлы
+.env
+.env.*
+!.env.example
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+scratch.go
